@@ -1,11 +1,13 @@
 package com.customcamera.demo.customcamerademo;
 
 import android.Manifest;
-import android.app.Activity;
+import android.content.ContentValues;
+import android.content.Context;
 import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.content.pm.ResolveInfo;
 import android.content.res.Configuration;
+import android.database.Cursor;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.graphics.Matrix;
@@ -38,12 +40,18 @@ import static android.os.Build.VERSION_CODES.M;
 public class MainActivity extends AppCompatActivity implements View.OnClickListener {
 
     private static final int PERMISSION_REQUESTCODE_CAMERA = 1001;
-    private static final int REQUESTCODE_CAMERA            = 101;
+    private static final int REQUESTCODE_CAMERA            = 101;//拍照
+    private static final int REQUESTCODE_CAMERA_CROP       = 102;//拍照并裁剪
+    private static final int REQUEST_CROP                  = 103;//裁剪
+    private static final int REQUEST_PICK_PHOTO            = 104;//图库选择图片
     private Button    mBtn1;
     private Button    mBtn2;
     private Button    mBtn3;
+    private Button    mBtn4;
+    private Button    mBtn5;
     private ImageView mImag;
     private File      mPhotoFile;
+    private int clickType = -1;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -57,23 +65,44 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
         mBtn1 = (Button) findViewById(R.id.btn1);
         mBtn2 = (Button) findViewById(R.id.btn2);
         mBtn3 = (Button) findViewById(R.id.btn3);
+        mBtn4 = (Button) findViewById(R.id.btn4);
+        mBtn5 = (Button) findViewById(R.id.btn5);
         mImag = (ImageView) findViewById(R.id.iv_imag);
         mBtn1.setOnClickListener(this);
         mBtn2.setOnClickListener(this);
         mBtn3.setOnClickListener(this);
+        mBtn4.setOnClickListener(this);
+        mBtn5.setOnClickListener(this);
     }
 
     @Override
     public void onClick(View v) {
         switch (v.getId()) {
             case R.id.btn1://拍照
+                clickType = 1;
                 checkPermission();
                 break;
-            case R.id.btn2://相册
+            case R.id.btn2://拍照裁剪
+                clickType = 2;
+                checkPermission();
                 break;
-            case R.id.btn3://取消
+            case R.id.btn3://相册
+                clickType = 3;
+                pickPhoto();
+                break;
+            case R.id.btn4://相册裁剪
+                clickType = 4;
+                pickPhoto();
+                break;
+            case R.id.btn5://取消
                 break;
         }
+    }
+
+    private void pickPhoto() {
+        Intent intent = new Intent(Intent.ACTION_PICK, null);
+        intent.setDataAndType(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, "image/*");
+        startActivityForResult(intent, REQUEST_PICK_PHOTO);
     }
 
     private void checkPermission() {
@@ -83,7 +112,6 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
 
             if (ActivityCompat.shouldShowRequestPermissionRationale(this, Manifest.permission.CAMERA)) {
                 //展示授权说明
-                //                ActivityCompat.requestPermissions(this, new String[]{Manifest.permission.CAMERA, Manifest.permission.READ_EXTERNAL_STORAGE}, PERMISSION_REQUESTCODE_CAMERA);
                 Toast.makeText(this, "不开启camera权限就无法使用拍照,请开启权限", Toast.LENGTH_SHORT).show();
             } else {
                 ActivityCompat.requestPermissions(this, new String[]{Manifest.permission.CAMERA, Manifest.permission.READ_EXTERNAL_STORAGE}, PERMISSION_REQUESTCODE_CAMERA);
@@ -105,10 +133,17 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
         }
         mPhotoFile = new File(file, System.currentTimeMillis() + ".jpg");
         Intent intent = new Intent(MediaStore.ACTION_IMAGE_CAPTURE);
-        Uri uriFromFile = getUriFromFile(mPhotoFile);
-
+        Uri uriFromFile = transformFile2Uri(mPhotoFile);
         intent.putExtra(MediaStore.EXTRA_OUTPUT, uriFromFile);
-        startActivityForResult(intent, REQUESTCODE_CAMERA);
+        switch (clickType) {
+            case 1://仅拍照
+                startActivityForResult(intent, REQUESTCODE_CAMERA);
+                break;
+            case 2://拍照裁剪
+                startActivityForResult(intent, REQUESTCODE_CAMERA_CROP);
+                break;
+        }
+
     }
 
     /**
@@ -123,12 +158,12 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
         return list.size() > 0;
     }
 
-    private Uri getUriFromFile(File photoFile) {
+    private Uri transformFile2Uri(File photoFile) {
         Uri photoUri = null;
         if (Build.VERSION.SDK_INT > M) {
             //android7.0
-            photoUri = FileProvider.getUriForFile(this, getPackageName() + ".fileprovider", photoFile);
-            grantUriPermission(getPackageName(), photoUri, Intent.FLAG_GRANT_READ_URI_PERMISSION);
+            photoUri = FileProvider.getUriForFile(getApplicationContext(), getApplicationContext().getPackageName() + ".fileprovider", photoFile);
+            grantUriPermission(getApplicationContext().getPackageName(), photoUri, Intent.FLAG_GRANT_READ_URI_PERMISSION);
         } else {
             photoUri = Uri.fromFile(photoFile);
         }
@@ -161,11 +196,11 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
     protected void onActivityResult(int requestCode, int resultCode, Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
         switch (requestCode) {
-            case REQUESTCODE_CAMERA:
+            case REQUESTCODE_CAMERA://仅拍照
                 //获取uri
                 if (mPhotoFile != null) {
                     try {
-                        Bitmap bitmapFormUri = getBitmapFormUri(this, mPhotoFile);
+                        Bitmap bitmapFormUri = compressAndSaveBitmap( mPhotoFile);
                         mImag.setImageBitmap(bitmapFormUri);
 
                     } catch (IOException e) {
@@ -173,6 +208,159 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
                     }
                 }
                 break;
+            case REQUESTCODE_CAMERA_CROP://拍照并裁剪
+                //获取uri
+                if (mPhotoFile != null) {
+                    try {
+                        compressAndSaveBitmap( mPhotoFile);
+                        //裁剪照片
+                        Uri uri = getImageContentUri(this, mPhotoFile);
+                        takeCrop(uri);
+                    } catch (IOException e) {
+                        e.printStackTrace();
+                    }
+
+                }
+                break;
+            case REQUEST_CROP://裁剪返回
+                if (mPhotoFile != null) {
+                    //裁剪返回
+                    Bitmap bitmapFormUri = BitmapFactory.decodeFile(mPhotoFile.getAbsolutePath());
+                    mImag.setImageBitmap(bitmapFormUri);
+                }
+                break;
+            case REQUEST_PICK_PHOTO://图库选择图片
+                if (data != null) {
+                    //定义需要保存裁剪图片的路径
+                    File file = new File(Environment.getExternalStorageDirectory(), "/customCameraFile/");
+                    if (!file.exists()) {
+                        file.mkdirs();
+                    }
+                    mPhotoFile = new File(file, System.currentTimeMillis() + ".jpg");
+                    switch (clickType) {
+                        case 3://仅选择
+                            try {
+                                Bitmap bitmap = MediaStore.Images.Media.getBitmap(
+                                        getContentResolver(), data.getData());
+                                FileOutputStream fileOutputStream = new FileOutputStream(mPhotoFile);
+                                bitmap.compress(Bitmap.CompressFormat.PNG, 100, fileOutputStream);
+                                fileOutputStream.flush();
+                                fileOutputStream.close();
+                                Bitmap bitmapFormUri = compressAndSaveBitmap( mPhotoFile);
+                                mImag.setImageBitmap(bitmapFormUri);
+                            } catch (IOException e) {
+                                e.printStackTrace();
+                            }
+                            break;
+                        case 4://选取裁剪
+                            mPhotoFile = new File(file, System.currentTimeMillis() + ".jpg");
+                            Uri uri = convertUri(data.getData(), mPhotoFile);
+                            takeCrop(getImageContentUri(this,mPhotoFile));
+                            break;
+                    }
+
+
+                }
+                break;
+        }
+    }
+
+    /**
+     * 将content类型的Uri转化为文件类型的Uri
+     *
+     * @param uri
+     * @return
+     */
+    private Uri convertUri(Uri uri, File file) {
+        InputStream is;
+        try {
+            //Uri ----> InputStream
+            is = getContentResolver().openInputStream(uri);
+            //InputStream ----> Bitmap
+            Bitmap bm = BitmapFactory.decodeStream(is);
+            //关闭流
+            is.close();
+
+            return saveBitmap(bm, file);
+        } catch (FileNotFoundException e) {
+            e.printStackTrace();
+            return null;
+        } catch (IOException e) {
+            e.printStackTrace();
+            return null;
+        }
+    }
+
+    /**
+     * 将Bitmap写入SD卡中的一个文件中,并返回写入文件的Uri
+     *
+     * @param bm
+     * @param file
+     * @return
+     */
+    private Uri saveBitmap(Bitmap bm, File file) {
+
+        try {
+            //打开文件输出流
+            FileOutputStream fos = new FileOutputStream(file);
+            //将bitmap压缩后写入输出流(参数依次为图片格式、图片质量和输出流)
+            bm.compress(Bitmap.CompressFormat.PNG, 85, fos);
+            //刷新输出流
+            fos.flush();
+            //关闭输出流
+            fos.close();
+            //返回File类型的Uri
+            return getImageContentUri(this, file);
+        } catch (FileNotFoundException e) {
+            e.printStackTrace();
+            return null;
+        } catch (IOException e) {
+            e.printStackTrace();
+            return null;
+        }
+
+    }
+
+    private void takeCrop(Uri uri) {
+
+        Intent intent = new Intent("com.android.camera.action.CROP");
+        intent.setDataAndType(uri, "image/*");
+        intent.putExtra("crop", "true");
+        intent.putExtra("aspectX", 1);
+        intent.putExtra("aspectY", 1);
+        intent.putExtra("outputX", 300);
+        intent.putExtra("outputY", 300);
+        intent.putExtra("scale", true);
+        intent.putExtra(MediaStore.EXTRA_OUTPUT, uri);
+        intent.putExtra("return-data", false);
+        intent.putExtra("outputFormat", Bitmap.CompressFormat.JPEG.toString());
+        intent.putExtra("noFaceDetection", true); // no face detection
+        startActivityForResult(intent, REQUEST_CROP);
+
+    }
+
+    public static Uri getImageContentUri(Context context, File imageFile) {
+        String filePath = imageFile.getAbsolutePath();
+        Cursor cursor = context.getContentResolver().query(
+                MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
+                new String[]{MediaStore.Images.Media._ID},
+                MediaStore.Images.Media.DATA + "=? ",
+                new String[]{filePath}, null);
+
+        if (cursor != null && cursor.moveToFirst()) {
+            int id = cursor.getInt(cursor
+                    .getColumnIndex(MediaStore.MediaColumns._ID));
+            Uri baseUri = Uri.parse("content://media/external/images/media");
+            return Uri.withAppendedPath(baseUri, "" + id);
+        } else {
+            if (imageFile.exists()) {
+                ContentValues values = new ContentValues();
+                values.put(MediaStore.Images.Media.DATA, filePath);
+                return context.getContentResolver().insert(
+                        MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values);
+            } else {
+                return null;
+            }
         }
     }
 
@@ -181,9 +369,9 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
      *
      * @param file
      */
-    public Bitmap getBitmapFormUri(Activity ac, File file) throws FileNotFoundException, IOException {
-        Uri uriFromFile = getUriFromFile(file);
-        InputStream input = ac.getContentResolver().openInputStream(uriFromFile);
+    public Bitmap compressAndSaveBitmap( File file) throws FileNotFoundException, IOException {
+        Uri uriFromFile = transformFile2Uri(file);
+        InputStream input = getApplicationContext().getContentResolver().openInputStream(uriFromFile);
         BitmapFactory.Options onlyBoundsOptions = new BitmapFactory.Options();
         onlyBoundsOptions.inJustDecodeBounds = true;
         BitmapFactory.decodeStream(input, null, onlyBoundsOptions);
@@ -191,7 +379,7 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
         onlyBoundsOptions.inSampleSize = calculateInSampleSize(onlyBoundsOptions, 480, 800);
         //设置缩放比例
         onlyBoundsOptions.inJustDecodeBounds = false;
-        input = ac.getContentResolver().openInputStream(uriFromFile);
+        input = getApplicationContext().getContentResolver().openInputStream(uriFromFile);
         Bitmap bitmap = BitmapFactory.decodeStream(input, null, onlyBoundsOptions);
         input.close();
         return compressImage(bitmap, file);//再进行质量压缩
@@ -233,7 +421,6 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
         //读取图片角度，纠正角度（针对三星手机拍照会旋转）
         int bitmapDegree = getBitmapDegree(file.getPath());
         image = rotateBitmapByDegree(image, bitmapDegree);
-
         ByteArrayOutputStream baos = new ByteArrayOutputStream();
         image.compress(Bitmap.CompressFormat.JPEG, 100, baos);//质量压缩方法，这里100表示不压缩，把压缩后的数据存放到baos中
         int options = 100;
