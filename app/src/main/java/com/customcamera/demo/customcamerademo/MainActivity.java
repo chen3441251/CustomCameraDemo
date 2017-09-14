@@ -4,6 +4,8 @@ import android.Manifest;
 import android.app.Activity;
 import android.content.Intent;
 import android.content.pm.PackageManager;
+import android.content.pm.ResolveInfo;
+import android.content.res.Configuration;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.graphics.Matrix;
@@ -18,7 +20,6 @@ import android.support.v4.app.ActivityCompat;
 import android.support.v4.content.ContextCompat;
 import android.support.v4.content.FileProvider;
 import android.support.v7.app.AppCompatActivity;
-import android.util.Log;
 import android.view.View;
 import android.widget.Button;
 import android.widget.ImageView;
@@ -30,6 +31,7 @@ import java.io.FileNotFoundException;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.util.List;
 
 import static android.os.Build.VERSION_CODES.M;
 
@@ -37,11 +39,11 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
 
     private static final int PERMISSION_REQUESTCODE_CAMERA = 1001;
     private static final int REQUESTCODE_CAMERA            = 101;
-    private        Button           mBtn1;
-    private        Button           mBtn2;
-    private        Button           mBtn3;
-    private        ImageView        mImag;
-    private        File             mPhotoFile;
+    private Button    mBtn1;
+    private Button    mBtn2;
+    private Button    mBtn3;
+    private ImageView mImag;
+    private File      mPhotoFile;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -93,7 +95,10 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
     }
 
     private void openCamera() {
-        Toast.makeText(this, "openCamera", Toast.LENGTH_SHORT).show();
+        if (!hasCamera()) {
+            Toast.makeText(this, "没有可用相机，请检查", Toast.LENGTH_SHORT).show();
+            return;
+        }
         File file = new File(Environment.getExternalStorageDirectory(), "/customCameraFile/");
         if (!file.exists()) {
             file.mkdirs();
@@ -104,6 +109,18 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
 
         intent.putExtra(MediaStore.EXTRA_OUTPUT, uriFromFile);
         startActivityForResult(intent, REQUESTCODE_CAMERA);
+    }
+
+    /**
+     * 判断系统中是否存在可以启动的相机应用
+     *
+     * @return 存在返回true，不存在返回false
+     */
+    public boolean hasCamera() {
+        PackageManager packageManager = getPackageManager();
+        Intent intent = new Intent(MediaStore.ACTION_IMAGE_CAPTURE);
+        List<ResolveInfo> list = packageManager.queryIntentActivities(intent, PackageManager.MATCH_DEFAULT_ONLY);
+        return list.size() > 0;
     }
 
     private Uri getUriFromFile(File photoFile) {
@@ -150,7 +167,7 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
                     try {
                         Bitmap bitmapFormUri = getBitmapFormUri(this, mPhotoFile);
                         mImag.setImageBitmap(bitmapFormUri);
-                        Log.d("xxx","路径=="+mPhotoFile.getPath());
+
                     } catch (IOException e) {
                         e.printStackTrace();
                     }
@@ -213,6 +230,10 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
      * @return
      */
     public Bitmap compressImage(Bitmap image, File file) {
+        //读取图片角度，纠正角度（针对三星手机拍照会旋转）
+        int bitmapDegree = getBitmapDegree(file.getPath());
+        image = rotateBitmapByDegree(image, bitmapDegree);
+
         ByteArrayOutputStream baos = new ByteArrayOutputStream();
         image.compress(Bitmap.CompressFormat.JPEG, 100, baos);//质量压缩方法，这里100表示不压缩，把压缩后的数据存放到baos中
         int options = 100;
@@ -235,10 +256,10 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
 
                /* ByteArrayInputStream isBm = new ByteArrayInputStream(baos.toByteArray());//把压缩后的数据baos存放到ByteArrayInputStream中
                 Bitmap bitmap = BitmapFactory.decodeStream(isBm, null, null);//把ByteArrayInputStream数据生成图片*/
-        int bitmapDegree = getBitmapDegree(file.getPath());
+
         Bitmap bitmap = BitmapFactory.decodeFile(file.getPath());
-        Bitmap rotatebitmap = rotateBitmapByDegree(bitmap, bitmapDegree);
-        return rotatebitmap;
+
+        return bitmap;
     }
 
    /* //保存压缩以后的bitmap
@@ -269,6 +290,7 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
         }
 
     }*/
+
     /**
      * 读取图片的旋转的角度
      *
@@ -298,7 +320,9 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
             e.printStackTrace();
         }
         return degree;
+
     }
+
     /**
      * 将图片按照某个角度进行旋转
      *
@@ -308,7 +332,6 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
      */
     public static Bitmap rotateBitmapByDegree(Bitmap bm, int degree) {
         Bitmap returnBm = null;
-
         // 根据旋转角度，生成旋转矩阵
         Matrix matrix = new Matrix();
         matrix.postRotate(degree);
@@ -324,5 +347,16 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
             bm.recycle();
         }
         return returnBm;
+    }
+
+    @Override
+    public void onConfigurationChanged(Configuration newConfig) {
+        if (newConfig.orientation == Configuration.ORIENTATION_LANDSCAPE) {
+            Configuration o = newConfig;
+            o.orientation = Configuration.ORIENTATION_PORTRAIT;
+            newConfig.setTo(o);
+        } else if (newConfig.orientation == Configuration.ORIENTATION_PORTRAIT) {
+        }
+        super.onConfigurationChanged(newConfig);
     }
 }
