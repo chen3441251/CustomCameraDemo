@@ -52,7 +52,6 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
     private Button    mBtn5;
     private ImageView mImag;
     private File      mPhotoFile;
-    private int clickType = -1;
     private  boolean isCrop;
 
     @Override
@@ -81,23 +80,19 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
     public void onClick(View v) {
         switch (v.getId()) {
             case R.id.btn1://拍照
-                clickType = 1;
                 isCrop=false;
                 checkPermission();
                 break;
             case R.id.btn2://拍照裁剪
-                clickType = 2;
                 isCrop=true;
                 checkPermission();
                 break;
             case R.id.btn3://相册
-                clickType = 3;
                 isCrop=false;
                 checkSdcardPermission();
                 //                pickPhoto();
                 break;
             case R.id.btn4://相册裁剪
-                clickType = 4;
                 isCrop=true;
                 checkSdcardPermission();
                 break;
