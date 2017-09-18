@@ -235,6 +235,7 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
     @Override
     protected void onActivityResult(int requestCode, int resultCode, Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
+        if(resultCode!=RESULT_OK)return;
         switch (requestCode) {
             case REQUESTCODE_CAMERA://仅拍照
                 //获取uri
